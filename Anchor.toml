@@ -1,0 +1,19 @@
+skip_local_validator = true
+
+[toolchain]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+stake_contract = "Gan53Gu3A7PVGfKZRX3x8NYyHibSGSJUXZFNPWA21czR"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "bun test ./programs/stake_contract/tests/index.test.ts --timeout 100000"
+
+[hooks]
