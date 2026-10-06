@@ -14,6 +14,10 @@ const REWARD_PER_SOL_PER_EPOCH: u64 = 1;
 pub mod stake_contract   {
   use super::*;
 
+  pub fn initialize_vault(_ctx: Context<InitializeVault>)->Result<()>{
+    Ok(())
+  }
+
   pub fn create_pda_account(ctx: Context<CreatePdaAccount>) -> Result<()> {
     let pda_account = &mut ctx.accounts.pda_account;
     let clock = Clock::get()?;
@@ -34,7 +38,7 @@ pub mod stake_contract   {
       ctx.accounts.system_program.key().clone(),
       system_program::Transfer {
         from: ctx.accounts.payer.to_account_info(),
-        to: ctx.accounts.pda_account.to_account_info(),
+        to: ctx.accounts.vault_account.to_account_info(),
       },
     );
     system_program::transfer(cpi_context, amount)?;
@@ -83,7 +87,7 @@ pub mod stake_contract   {
 
     **ctx
       .accounts
-      .pda_account
+      .vault_account
       .to_account_info()
       .try_borrow_mut_lamports()? -= amount;
 
@@ -198,7 +202,20 @@ fn calculate_points(staked_amount: u64, elapsed_epochs: u64) -> Result<u64> {
 //   Ok(tokens)
 // }
 
-
+#[derive(Accounts)]
+pub struct InitializeVault<'info>{
+  #[account(
+    init,
+    payer=signer,
+    space=8+Vault::INIT_SPACE,
+    seeds=[b"vault"],
+    bump
+  )]
+  vault_account: Account<'info, Vault>,
+  #[account(mut)]
+  signer: Signer<'info>,
+  system_program: Program<'info, System>
+}
 
 #[derive(Accounts)]
 pub struct CreatePdaAccount<'info> {
@@ -226,6 +243,12 @@ pub struct StakeSol<'info> {
     constraint = pda_account.owner == payer.key() @ StakeError::Unauthorized
   )]
   pub pda_account: Account<'info, StakeData>,
+  #[account(
+    mut,
+    seeds=[b"vault"],
+    bump
+  )]
+  pub vault_account: Account<'info, Vault>,
   pub system_program: Program<'info, System>,
 }
 
@@ -259,6 +282,12 @@ pub struct UnstakeSol<'info>   {
     bump
   )]
   pub mint_authority: UncheckedAccount<'info>,
+  #[account(
+    mut,
+    seeds=[b"vault"],
+    bump
+  )]
+  pub vault_account: Account<'info, Vault>,
 }
 
 #[derive(Accounts)]
@@ -323,6 +352,10 @@ pub struct StakeData {
   pub last_updated_epoch: u64,
   pub bump: u8,
 }
+
+#[account]
+#[derive(InitSpace)]
+pub struct  Vault{}
 
 #[error_code]
 pub enum StakeError {
