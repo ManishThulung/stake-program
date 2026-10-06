@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-// use anchor_spl::{
-//   token_interface::{self, Mint, MintTo, TokenAccount, TokenInterface},
-// };
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token_interface::{self, Mint, MintTo, TokenAccount, TokenInterface};
+
 
 declare_id!("Gan53Gu3A7PVGfKZRX3x8NYyHibSGSJUXZFNPWA21czR");
 
@@ -93,21 +93,72 @@ pub mod stake_contract   {
       .to_account_info()
       .try_borrow_mut_lamports()? += amount;
 
+    mint_reward_token(
+      &ctx.accounts.token_account,
+      &ctx.accounts.mint,
+      &ctx.accounts.mint_authority,
+      &ctx.accounts.token_program,
+      withdrawal_points,
+      ctx.bumps.mint_authority
+    )?;
+
+
     Ok(())
   }
 
-  // pub fn claim_rewards(ctx: Context<UnstakeSol>) -> Result<()> {
-  //   let clock = Clock::get()?;
-  //   let pda_account = &mut ctx.accounts.pda_account;
+  pub fn create_program_pda_account(_ctx: Context<CreateProgramPdaAccount>) -> Result<()> {
+    Ok(())
+  }
 
-  //   update_points(pda_account, clock.epoch)?;
+  pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
+    let clock = Clock::get()?;
+    let pda_account = &mut ctx.accounts.pda_account;
+    let elapsed_epochs = clock
+      .epoch
+      .checked_sub(pda_account.last_updated_epoch)
+      .ok_or(StakeError::Overflow)?;
+    let new_points = calculate_points(pda_account.staked_amount, elapsed_epochs)?;
+    let total_points = new_points
+      .checked_add(pda_account.total_points)
+      .ok_or(StakeError::Overflow)?;
 
-  //   // could mint tokens here based on pda_account.total_points
+    mint_reward_token(
+      &ctx.accounts.token_account,
+      &ctx.accounts.mint,
+      &ctx.accounts.mint_authority,
+      &ctx.accounts.token_program,
+      total_points,
+      ctx.bumps.mint_authority
+    )?;
+    
+    pda_account.total_points=0;
+    pda_account.last_updated_epoch=clock.epoch;
 
-  //   pda_account.total_points = 0;
+    Ok(())
+  }
+}
 
-  //   Ok(())
-  // }
+fn mint_reward_token<'info>(
+  token_account: &InterfaceAccount<'info, TokenAccount>,
+  mint: &InterfaceAccount<'info, Mint>,
+  mint_authority: &UncheckedAccount<'info>,
+  token_program: &Interface<'info, TokenInterface>,
+  amount: u64,
+  bump: u8
+) -> Result<()> {
+  
+  // convert total_points to tokens based on POINT_PRECISION
+  let signer_seeds: &[&[&[u8]]] = &[&[b"reward_authority", &[bump]]];
+  let cpi_accounts = MintTo{
+    mint: mint.to_account_info(),
+    to: token_account.to_account_info(),
+    authority: mint_authority.to_account_info(),
+  };
+  let cpi_program_id = token_program.key();
+  let cpi_ctx = CpiContext::new(cpi_program_id, cpi_accounts).with_signer(signer_seeds);
+  token_interface::mint_to(cpi_ctx, amount)?;
+
+  Ok(())
 }
 
 fn update_points(pda: &mut StakeData, current_epoch: u64) -> Result<()> {
@@ -138,6 +189,16 @@ fn calculate_points(staked_amount: u64, elapsed_epochs: u64) -> Result<u64> {
 
   Ok(total_points_earned)
 }
+
+// fn convert_points_to_tokens(points: u64) -> Result<u64> {
+//   let tokens = points
+//     .checked_div(POINT_PRECISION)
+//     .ok_or(StakeError::Overflow)?;
+
+//   Ok(tokens)
+// }
+
+
 
 #[derive(Accounts)]
 pub struct CreatePdaAccount<'info> {
@@ -179,18 +240,79 @@ pub struct UnstakeSol<'info>   {
     constraint = pda_account.owner == receiver.key() @ StakeError::Unauthorized
   )]
   pub pda_account: Account<'info, StakeData>,
+  #[account(
+    mut,
+    associated_token::mint = mint,
+    associated_token::authority = receiver,
+    associated_token::token_program = token_program,
+  )]
+  pub token_account: InterfaceAccount<'info, TokenAccount>,
+  pub token_program: Interface<'info, TokenInterface>,
+  #[account(
+    mut,
+    mint::authority = mint_authority
+  )]
+  pub mint: InterfaceAccount<'info, Mint>, // account is owned by a token program and that its data deserializes as a Mint
+  /// CHECK: PDA used only as the mint authority signer, verified by seeds
+  #[account(
+    seeds = [b"reward_authority"],
+    bump
+  )]
+  pub mint_authority: UncheckedAccount<'info>,
 }
 
-// #[derive(Accounts)]
-// pub struct ClaimRewards<'info> {
-//   // #[account(mut)]
-//   // pub signer: Signer<'info>,
-//   #[account(mut)]
-//   pub mint: InterfaceAccount<'info, Mint>,
-//   #[account(mut)]
-//   pub token_account: InterfaceAccount<'info, TokenAccount>,
-//   pub token_program: Interface<'info, TokenInterface>,
-// }
+#[derive(Accounts)]
+pub struct ClaimRewards<'info> {
+  #[account(mut)]
+  pub signer: Signer<'info>,
+  #[account(
+    mut,
+    associated_token::mint = mint,
+    associated_token::authority = signer,
+    associated_token::token_program = token_program,
+  )]
+  pub token_account: InterfaceAccount<'info, TokenAccount>,
+  pub token_program: Interface<'info, TokenInterface>,
+  #[account(
+    mut,
+    seeds=[b"clients", signer.key().as_ref()], 
+    bump=pda_account.bump,
+    constraint = pda_account.owner == signer.key() @ StakeError::Unauthorized
+  )]
+  pub pda_account: Account<'info, StakeData>,
+  #[account(
+    mut,
+    mint::authority = mint_authority
+  )]
+  pub mint: InterfaceAccount<'info, Mint>, // account is owned by a token program and that its data deserializes as a Mint
+  /// CHECK: PDA used only as the mint authority signer, verified by seeds
+  #[account(
+    seeds = [b"reward_authority"],
+    bump
+  )]
+  pub mint_authority: UncheckedAccount<'info>,
+  pub associated_token_program: Program<'info, AssociatedToken>,
+  pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CreateProgramPdaAccount<'info> {
+  #[account(
+    init,
+    payer=signer, 
+    space=8+StakeData::INIT_SPACE, 
+    seeds = [b"reward_authority"],
+    bump
+  )]
+  pub pda_account: Account<'info, ProgramPdaData>,
+  #[account(mut)]
+  pub signer: Signer<'info>,
+  pub system_program: Program<'info, System>,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct ProgramPdaData {}
 
 #[account]
 #[derive(InitSpace)]

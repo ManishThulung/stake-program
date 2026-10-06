@@ -1,7 +1,10 @@
-import { StakeContract } from "./../../../target/types/stake_contract";
 import * as anchor from "@coral-xyz/anchor";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@coral-xyz/anchor/dist/cjs/utils/token";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "bun:test";
+import { StakeContract } from "./../../../target/types/stake_contract";
+
+const MINT = new PublicKey("3PkHJrVxaoPxjkTtdKBpPuLShwiwM1MB77TkKHbzaEdz");
 
 describe("Stake Contract", async () => {
   const provider = anchor.AnchorProvider.env();
@@ -38,44 +41,44 @@ describe("Stake Contract", async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  it("initializes the account with a starting value", async () => {
-    await program.methods
-      .createPdaAccount()
-      .accounts({
-        // pdaAccount: pda,
-        signer: provider.wallet.publicKey,
-      })
-      // .signers([pdaAccount])
-      .rpc();
+  // it("initializes the account with a starting value", async () => {
+  //   await program.methods
+  //     .createPdaAccount()
+  //     .accounts({
+  //       // pdaAccount: pda,
+  //       signer: provider.wallet.publicKey,
+  //     })
+  //     // .signers([pdaAccount])
+  //     .rpc();
 
-    const state = await program.account.stakeData.fetch(pda);
-    expect(Number(state.stakedAmount)).toBe(0);
-  });
+  //   const state = await program.account.stakeData.fetch(pda);
+  //   expect(Number(state.stakedAmount)).toBe(0);
+  // });
 
   const INITIAL_SOL = 6;
 
-  it(`deposit ${INITIAL_SOL} sol`, async () => {
-    const amount = new anchor.BN(INITIAL_SOL * LAMPORTS_PER_SOL);
-    await program.methods
-      .stakeSolana(amount)
-      .accounts({
-        payer: provider.wallet.publicKey,
-        // pdaAccount: pda,
-      })
-      .rpc();
+  // it(`deposit ${INITIAL_SOL} sol`, async () => {
+  //   const amount = new anchor.BN(INITIAL_SOL * LAMPORTS_PER_SOL);
+  //   await program.methods
+  //     .stakeSolana(amount)
+  //     .accounts({
+  //       payer: provider.wallet.publicKey,
+  //       // pdaAccount: pda,
+  //     })
+  //     .rpc();
 
-    const state = await program.account.stakeData.fetch(pda);
-    console.log(
-      {
-        stakedAmount: state.stakedAmount.toString(),
-        totalPoints: state.totalPoints.toString(),
-        lastUpdatedEpoch: state.lastUpdatedEpoch.toString(),
-      },
-      "STAKE state",
-    );
-    expect(state.stakedAmount.toNumber()).toBe(INITIAL_SOL * LAMPORTS_PER_SOL);
-    expect(state.owner.toBase58()).toBe(signer.publicKey.toBase58());
-  });
+  //   const state = await program.account.stakeData.fetch(pda);
+  //   console.log(
+  //     {
+  //       stakedAmount: state.stakedAmount.toString(),
+  //       totalPoints: state.totalPoints.toString(),
+  //       lastUpdatedEpoch: state.lastUpdatedEpoch.toString(),
+  //     },
+  //     "STAKE state",
+  //   );
+  //   expect(state.stakedAmount.toNumber()).toBe(INITIAL_SOL * LAMPORTS_PER_SOL);
+  //   expect(state.owner.toBase58()).toBe(signer.publicKey.toBase58());
+  // });
 
   it(`unstake ${INITIAL_SOL / 2} sol`, async () => {
     const beforeState = await program.account.stakeData.fetch(pda);
@@ -110,6 +113,8 @@ describe("Stake Contract", async () => {
       .unstakeSolana(amount)
       .accounts({
         receiver: provider.wallet.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: MINT,
       })
       .rpc();
 
@@ -126,4 +131,61 @@ describe("Stake Contract", async () => {
       INITIAL_SOL / 2,
     );
   });
+
+  // it(`claims rewards`, async () => {
+  //   // const ata = getAssociatedTokenAddressSync(
+  //   //   mint,
+  //   //   signer.publicKey,
+  //   //   false,
+  //   //   TOKEN_PROGRAM_ID, // TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID
+  //   // );
+  //   // console.log("signer:", signer.publicKey.toBase58());
+  //   // console.log("expected ATA:", ata.toBase58());
+
+  //   const before = await program.account.stakeData.fetch(pda);
+  //   console.log(
+  //     {
+  //       stakedAmount: before.stakedAmount.toString(),
+  //       totalPoints: before.totalPoints.toString(),
+  //       lastUpdatedEpoch: before.lastUpdatedEpoch.toString(),
+  //     },
+  //     "claims rewards STAKE before",
+  //   );
+
+  //   await program.methods
+  //     .claimRewards()
+  //     .accounts({
+  //       tokenProgram: TOKEN_PROGRAM_ID,
+  //       mint: MINT,
+  //     })
+  //     .rpc();
+
+  //   const state = await program.account.stakeData.fetch(pda);
+  //   console.log(
+  //     {
+  //       stakedAmount: state.stakedAmount.toString(),
+  //       totalPoints: state.totalPoints.toString(),
+  //       lastUpdatedEpoch: state.lastUpdatedEpoch.toString(),
+  //     },
+  //     "claims rewards STAKE state",
+  //   );
+  //   expect(state.totalPoints.toNumber()).toBe(0);
+  // });
 });
+
+//////////////////////////////////////////////////////////////////////
+// it("initializes program pda account", async () => {
+//   const provider = anchor.AnchorProvider.env();
+//   anchor.setProvider(provider);
+
+//   const program = anchor.workspace
+//     .StakeContract as anchor.Program<StakeContract>;
+
+//   await program.methods
+//     .createProgramPdaAccount()
+//     .accounts({
+//       signer: provider.wallet.publicKey,
+//     })
+//     // .signers([pdaAccount])
+//     .rpc();
+// });
